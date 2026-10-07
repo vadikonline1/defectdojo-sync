@@ -1,0 +1,36 @@
+services:
+
+  greenbone-defectdojo-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: greenbone-defectdojo-sync
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    volumes:
+      - greenbone-community-edition_gvmd_socket_vol:/run/gvmd:rw
+      - ./data:/data:rw
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - greenbone-community-edition_default
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+
+  greenbone-community-edition_gvmd_socket_vol:
+    external: true
+
+networks:
+
+  greenbone-community-edition_default:
+    external: true
