@@ -73,6 +73,7 @@ cp .env.example .env
 | `DEFECTDOJO_PRODUCT_TYPE` | `Security Scanning` | product type comun |
 | `SYNC_INTERVAL` | `3600` | secunde intre rulari |
 | `LOG_LEVEL` | `INFO` | nivel log |
+| `ENABLED_SOURCES` | `openvas,wazuh` | surse active; ex. `openvas` daca n-ai Wazuh |
 | `GVM_SOCKET` | `/run/gvmd/gvmd.sock` | socket gvmd (montat ca volum) |
 | `GVM_USERNAME` / `GVM_PASSWORD` | `admin` | creds Greenbone |
 | `OPENVAS_PRODUCT` | `Greenbone` | Product DefectDojo pt. OpenVAS |
@@ -98,7 +99,7 @@ cp .env.example .env
 | `WAZUH_REPORT_DIR` | `/data/wazuh-reports` | chunkuri JSON |
 | `WAZUH_STATE_FILE` | `/data/state/wazuh-sync-state.json` | stare anti-duplicat |
 | `MAX_FINDINGS_PER_IMPORT` | `15000` | findings per chunk (< 100 MB) |
-| `WAZUH_CLOSE_OLD_FINDINGS` | `false` | inchide findings lipsa din import; tine `false` cu import chunked |
+| `WAZUH_AUTO_CLOSE_MISSING` | `true` | dupa import complet inchide findings ACTIVE lipsa din Wazuh (cu motiv in istoric) |
 
 ## Rulare
 
@@ -140,9 +141,11 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
 4. Pe Wazuh ≥ 4.8 endpoint-ul `/vulnerability/{agent}` nu mai exista (404);
    vulnerabilitatile se citesc din OpenSearch (`wazuh-states-vulnerabilities-*`),
    deci trebuie creds de indexer, nu doar de API.
-5. `Closed` umflat in DefectDojo: cu `close_old_findings=true` + import in
-   chunkuri, fiecare chunk inchide findings-urile celorlalte chunkuri.
-   De aceea `WAZUH_CLOSE_OLD_FINDINGS` e `false` by default — findings se
+5. `Closed` umflat in DefectDojo: importurile chunked folosesc mereu
+   `close_old_findings=false` (altfel fiecare chunk inchide findings-urile
+   celorlalte). Dupa fiecare import complet, `close_missing_findings()`
+   inchide doar findings ACTIVE a caror cheie stabila (`CVE + agent_id`)
+   lipseste din inventar, cu nota explicativa in istoric. — findings se
    inchid doar manual sau cand remedierea e confirmata, iar dedup-ul se face
    dupa cheie stabila (`CVE + agent_id` via `unique_id_from_tool`).
 

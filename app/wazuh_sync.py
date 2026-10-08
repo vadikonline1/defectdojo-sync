@@ -40,11 +40,13 @@ WAZUH_PRODUCT_TYPE = os.getenv("WAZUH_PRODUCT_TYPE", "Security Scanning")
 WAZUH_ENGAGEMENT = os.getenv("WAZUH_ENGAGEMENT", "Wazuh Automated Scans")
 WAZUH_SCAN_TYPE = os.getenv("WAZUH_SCAN_TYPE", "Wazuh")
 WAZUH_TEST_TITLE = os.getenv("WAZUH_TEST_TITLE", "Wazuh vulnerabilities")
-# NU inchide automat findings lipsa din importul curent. Importul se face in
-# chunkuri (< 100 MB); cu close_old_findings=true fiecare chunk ar inchide
-# findings-urile celorlalte chunkuri -> Closed umflat artificial. Inchiderea
-# se face doar manual sau cand remedierea e confirmata.
-WAZUH_CLOSE_OLD_FINDINGS = os.getenv("WAZUH_CLOSE_OLD_FINDINGS", "false").lower() == "true"
+# Inchidere automata: NU via close_old_findings la import (importul se face in
+# chunkuri < 100 MB, iar fiecare chunk ar inchide findings-urile celorlalte
+# chunkuri -> Closed umflat artificial). In schimb, dupa import facem o pasa
+# dedicata: inchidem doar findings ACTIVE care lipsesc din inventarul COMPLET
+# curent (cheie stabila CVE + agent_id). Asa Closed inseamna real "a disparut
+# din Wazuh", nu artefact de chunking.
+WAZUH_AUTO_CLOSE_MISSING = os.getenv("WAZUH_AUTO_CLOSE_MISSING", "true").lower() == "true"
 
 WAZUH_REPORT_DIR = Path(os.getenv("WAZUH_REPORT_DIR", "/data/wazuh-reports"))
 WAZUH_STATE_FILE = Path(os.getenv(
@@ -277,7 +279,9 @@ def post_scan_file(json_path, first_file):
             "verified": "false",
             "minimum_severity": "Info",
             "tags": "wazuh",
-            "close_old_findings": "true" if WAZUH_CLOSE_OLD_FINDINGS else "false",
+            # Mereu false aici: inchiderea se face in close_missing_findings(),
+            # pe baza inventarului complet, nu a unui singur chunk.
+            "close_old_findings": "false",
         }
         size_mb = json_path.stat().st_size / 1048576
         log.info("Upload %s (%.1f MB) -> %s", json_path.name, size_mb, endpoint)
@@ -324,6 +328,104 @@ def chunk_payload(payload, max_per_file):
             for i in range(0, len(items), max_per_file)]
 
 
+def dojo_api(method, path, payload=None, params=None):
+    from common import DEFECTDOJO_URL, DEFECTDOJO_VERIFY_TLS
+    r = requests.request(
+        method, f"{DEFECTDOJO_URL}{path}",
+        headers=dd_headers(), json=payload,
+        params=params or {}, verify=DEFECTDOJO_VERIFY_TLS, timeout=60)
+    if r.status_code >= 400:
+        raise RuntimeError(f"DefectDojo {method} {path} HTTP {r.status_code}: {r.text[:500]}")
+    return r.json() if r.text else {}
+
+
+def managed_keys(payload):
+    """Chei stabile CVE + agent_id — acelasi format ca unique_id_from_tool
+    al parserului DefectDojo v4.8 (dupe_key = cve-agent_id)."""
+    if "hits" in payload:
+        return {
+            f"{h.get('_source', {}).get('vulnerability', {}).get('id', '')}-"
+            f"{h.get('_source', {}).get('agent', {}).get('id', '')}"
+            for h in payload["hits"]["hits"]
+        }
+    return {
+        f"{v.get('cve', '')}-{v.get('agent_name', '') or v.get('agent_ip', '')}"
+        for v in payload["data"]["affected_items"]
+    }
+
+
+def find_wazuh_tests():
+    # Filtrele se aplica si client-side (unele deployments ignora query params).
+    prods = dojo_api("GET", "/api/v2/products/", {"name": WAZUH_PRODUCT}).get("results", [])
+    prod = next((p for p in prods if p.get("name") == WAZUH_PRODUCT), None)
+    if not prod:
+        return []
+    engs = dojo_api("GET", "/api/v2/engagements/", {"product": prod["id"]}).get("results", [])
+    tids = []
+    for e in engs:
+        if e.get("name") != WAZUH_ENGAGEMENT:
+            continue
+        tests = dojo_api("GET", "/api/v2/tests/", {"engagement": e["id"]}).get("results", [])
+        tids += [t["id"] for t in tests if t.get("title") == WAZUH_TEST_TITLE]
+    return tids
+
+
+def close_missing_findings(current_keys):
+    """Inchide findings ACTIVE care nu mai sunt in inventarul Wazuh.
+
+    Ruleaza DOAR dupa un import complet reusit, deci 'lipsa' inseamna
+    'confirmat disparut', nu 'lipsa dintr-un chunk'. Findings fara
+    unique_id_from_tool (create manual) nu sunt atinse.
+    """
+    if not WAZUH_AUTO_CLOSE_MISSING:
+        log.info("Auto-close dezactivat (WAZUH_AUTO_CLOSE_MISSING=false) — skip")
+        return 0
+    tids = find_wazuh_tests()
+    if not tids:
+        log.warning("Niciun test %r gasit — skip auto-close", WAZUH_TEST_TITLE)
+        return 0
+    checked = closed = 0
+    samples = []
+    for tid in tids:
+        offset = 0
+        while True:
+            page = dojo_api("GET", "/api/v2/findings/",
+                            params={"test": tid, "active": "true",
+                                    "limit": 100, "offset": offset})
+            results = page.get("results", [])
+            if not results:
+                break
+            for f in results:
+                if f.get("active") is False:
+                    continue  # inchis deja — nu-l atingem (fara churn in istoric)
+                key = f.get("unique_id_from_tool")
+                if not key:
+                    continue  # creat manual — nu-l atingem
+                checked += 1
+                if key not in current_keys:
+                    # Motivul inchiderii ramane in logul sync-ului + in istoricul
+                    # finding-ului (Active True->False, Is Mitigated False->True).
+                    # (API-ul /api/v2/notes/ nu accepta POST — 405 — deci nu
+                    #  se mai incearca atasarea de note.)
+                    try:
+                        dojo_api("PATCH", f"/api/v2/findings/{f['id']}/",
+                                 {"active": False, "is_mitigated": True})
+                    except RuntimeError:
+                        # fallback: unele versiuni nu accepta is_mitigated la PATCH
+                        dojo_api("PATCH", f"/api/v2/findings/{f['id']}/",
+                                 {"active": False})
+                    closed += 1
+                    if len(samples) < 10:
+                        samples.append(f.get("title", key))
+            if len(results) < 100:
+                break
+            offset += 100
+    log.info("Auto-close: verificate=%d active, inchise=%d (lipsa din Wazuh)", checked, closed)
+    for s in samples:
+        log.info("  inchis: %s", s)
+    return closed
+
+
 def collect_payload():
     token = wazuh_authenticate()
     ver, token = get_wazuh_version(token)
@@ -366,8 +468,10 @@ def wazuh_sync():
         log.info("Salvat %s (%d bytes)", p, p.stat().st_size)
         paths.append(p)
     import_into_defectdojo(paths)
+    closed = close_missing_findings(managed_keys(payload))
     save_state(fp, count)
-    log.info("========== Wazuh finished: %d findings in %d chunks ==========", count, len(paths))
+    log.info("========== Wazuh finished: %d findings in %d chunks, auto-closed=%d ==========",
+             count, len(paths), closed)
 
 
 def wazuh_list_agents():
