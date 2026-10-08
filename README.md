@@ -144,7 +144,6 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
 
 - `.env` contine parole reale si **nu se comite** (e in `.gitignore`).
   In git ajunge doar `.env.example`.
-- Tokenul GitHub (PAT) se foloseste doar la `push`/CI, nu se salveaza in repo.
 
 ## Crearea utilizatorului Wazuh Manager API (`defectdojo-api`)
 
