@@ -145,3 +145,112 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
 - `.env` contine parole reale si **nu se comite** (e in `.gitignore`).
   In git ajunge doar `.env.example`.
 - Tokenul GitHub (PAT) se foloseste doar la `push`/CI, nu se salveaza in repo.
+
+## Crearea utilizatorului Wazuh Manager API (`defectdojo-api`)
+
+Sync-ul Wazuh foloseste un user API dedicat cu rol **readonly** (ID 2),
+nu contul administrator `wazuh`. Comenzile de mai jos se executa pe
+managerul Wazuh (API pe portul **55000**). Daca le rulezi de pe alt host,
+inlocuieste `127.0.0.1` cu `wazuh.intranet.paynet.md`.
+
+### 1. Ia un token ca admin
+
+```bash
+TOKEN=$(curl -sk -u 'wazuh:PAROLA_WAZUH' \
+  -X POST \
+  'https://127.0.0.1:55000/security/user/authenticate?raw=true')
+
+echo "$TOKEN"
+```
+
+### 2. Verifica utilizatorii existenti
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  'https://127.0.0.1:55000/security/users?pretty=true'
+```
+
+### 3. Daca utilizatorul nu exista, creeaza-l
+
+```bash
+curl -sk -X POST \
+  'https://127.0.0.1:55000/security/users?pretty=true' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "username": "defectdojo-api",
+    "password": "PAROLA_COMPLEXA"
+  }'
+```
+
+### 4. Verifica rolurile disponibile
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  'https://127.0.0.1:55000/security/roles?pretty=true'
+```
+
+Roluri implicite:
+
+| ID | NAME |
+|----|------|
+| 1 | administrator |
+| 2 | readonly |
+| 3 | users_admin |
+| 4 | agents_readonly |
+| 5 | agents_admin |
+| 6 | cluster_readonly |
+| 7 | cluster_admin |
+| 100 | read_cluster |
+
+Pentru sync e suficient rolul **readonly = ID 2** (doar citire:
+agenti, vulnerabilitati, info manager).
+
+### 5. Atribuie rolul readonly noului utilizator
+
+Mai intai afla ID-ul utilizatorului din lista de la pasul 2 (in exemplu e `100`):
+
+```bash
+curl -sk -X POST \
+  'https://127.0.0.1:55000/security/users/100/roles?role_ids=2&pretty=true' \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 6. Verifica atribuirea
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  'https://127.0.0.1:55000/security/users/100?pretty=true'
+```
+
+Trebuie sa vezi:
+
+```json
+{
+   "id": 100,
+   "username": "defectdojo-api",
+   "allow_run_as": false,
+   "roles": [
+      2
+   ]
+}
+```
+
+Important: `allow_run_as` trebuie sa fie `false`.
+
+### 7. Testeaza autentificarea cu utilizatorul nou (nu cu administratorul)
+
+```bash
+DDTOKEN=$(curl -sk -u 'defectdojo-api:PAROLA_COMPLEXA' \
+  -X POST \
+  'https://127.0.0.1:55000/security/user/authenticate?raw=true')
+
+echo "$DDTOKEN"
+```
+
+Trebuie sa primesti un JWT. Pune apoi `WAZUH_USERNAME=defectdojo-api` si
+parola in `.env`, iar pentru OpenSearch foloseste un user read-only separat
+(ex. `readall`) — vezi tabelul de configurare de mai sus.
