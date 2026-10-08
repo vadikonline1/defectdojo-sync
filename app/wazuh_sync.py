@@ -40,6 +40,11 @@ WAZUH_PRODUCT_TYPE = os.getenv("WAZUH_PRODUCT_TYPE", "Security Scanning")
 WAZUH_ENGAGEMENT = os.getenv("WAZUH_ENGAGEMENT", "Wazuh Automated Scans")
 WAZUH_SCAN_TYPE = os.getenv("WAZUH_SCAN_TYPE", "Wazuh")
 WAZUH_TEST_TITLE = os.getenv("WAZUH_TEST_TITLE", "Wazuh vulnerabilities")
+# NU inchide automat findings lipsa din importul curent. Importul se face in
+# chunkuri (< 100 MB); cu close_old_findings=true fiecare chunk ar inchide
+# findings-urile celorlalte chunkuri -> Closed umflat artificial. Inchiderea
+# se face doar manual sau cand remedierea e confirmata.
+WAZUH_CLOSE_OLD_FINDINGS = os.getenv("WAZUH_CLOSE_OLD_FINDINGS", "false").lower() == "true"
 
 WAZUH_REPORT_DIR = Path(os.getenv("WAZUH_REPORT_DIR", "/data/wazuh-reports"))
 WAZUH_STATE_FILE = Path(os.getenv(
@@ -272,7 +277,7 @@ def post_scan_file(json_path, first_file):
             "verified": "false",
             "minimum_severity": "Info",
             "tags": "wazuh",
-            "close_old_findings": "true",
+            "close_old_findings": "true" if WAZUH_CLOSE_OLD_FINDINGS else "false",
         }
         size_mb = json_path.stat().st_size / 1048576
         log.info("Upload %s (%.1f MB) -> %s", json_path.name, size_mb, endpoint)

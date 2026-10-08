@@ -67,7 +67,7 @@ cp .env.example .env
 
 | Variabila | Default | Descriere |
 |---|---|---|
-| `DEFECTDOJO_URL` | `http://10.130.70.20:8080` | URL DefectDojo |
+| `DEFECTDOJO_URL` | `http://defectdojo.example.local:8080` | URL DefectDojo |
 | `DEFECTDOJO_API_TOKEN` | — | token API (obligatoriu) |
 | `DEFECTDOJO_VERIFY_TLS` | `false` | verifica cert TLS DefectDojo |
 | `DEFECTDOJO_PRODUCT_TYPE` | `Security Scanning` | product type comun |
@@ -98,6 +98,7 @@ cp .env.example .env
 | `WAZUH_REPORT_DIR` | `/data/wazuh-reports` | chunkuri JSON |
 | `WAZUH_STATE_FILE` | `/data/state/wazuh-sync-state.json` | stare anti-duplicat |
 | `MAX_FINDINGS_PER_IMPORT` | `15000` | findings per chunk (< 100 MB) |
+| `WAZUH_CLOSE_OLD_FINDINGS` | `false` | inchide findings lipsa din import; tine `false` cu import chunked |
 
 ## Rulare
 
@@ -139,6 +140,11 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
 4. Pe Wazuh ≥ 4.8 endpoint-ul `/vulnerability/{agent}` nu mai exista (404);
    vulnerabilitatile se citesc din OpenSearch (`wazuh-states-vulnerabilities-*`),
    deci trebuie creds de indexer, nu doar de API.
+5. `Closed` umflat in DefectDojo: cu `close_old_findings=true` + import in
+   chunkuri, fiecare chunk inchide findings-urile celorlalte chunkuri.
+   De aceea `WAZUH_CLOSE_OLD_FINDINGS` e `false` by default — findings se
+   inchid doar manual sau cand remedierea e confirmata, iar dedup-ul se face
+   dupa cheie stabila (`CVE + agent_id` via `unique_id_from_tool`).
 
 ## Securitate
 
@@ -150,7 +156,7 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
 Sync-ul Wazuh foloseste un user API dedicat cu rol **readonly** (ID 2),
 nu contul administrator `wazuh`. Comenzile de mai jos se executa pe
 managerul Wazuh (API pe portul **55000**). Daca le rulezi de pe alt host,
-inlocuieste `127.0.0.1` cu `wazuh.intranet.paynet.md`.
+inlocuieste `127.0.0.1` cu `wazuh.example.local`.
 
 ### 1. Ia un token ca admin
 
@@ -252,4 +258,4 @@ echo "$DDTOKEN"
 
 Trebuie sa primesti un JWT. Pune apoi `WAZUH_USERNAME=defectdojo-api` si
 parola in `.env`, iar pentru OpenSearch foloseste un user read-only separat
-(ex. `readall`) — vezi tabelul de configurare de mai sus.
+(ex. un user read-only de OpenSearch) — vezi tabelul de configurare de mai sus.
