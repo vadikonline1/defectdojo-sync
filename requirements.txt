@@ -1,3 +1,5 @@
 gvm-tools
 requests
 APScheduler
+opensearch-py
+packaging

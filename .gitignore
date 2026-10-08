@@ -1,0 +1,11 @@
+# secrete locale — NU se comit
+.env
+
+# date runtime — NU se comit
+data/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/

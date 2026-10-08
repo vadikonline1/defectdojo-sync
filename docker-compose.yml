@@ -1,11 +1,11 @@
 services:
 
-  greenbone-defectdojo-sync:
+  defectdojo-sync:
     build:
       context: .
       dockerfile: Dockerfile
 
-    container_name: greenbone-defectdojo-sync
+    container_name: defectdojo-sync
 
     restart: unless-stopped
 
@@ -18,6 +18,7 @@ services:
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "wazuh.intranet.paynet.md:10.130.10.215"
 
     networks:
       - greenbone-community-edition_default
