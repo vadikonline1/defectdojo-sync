@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover
 log = get_logger("wazuh-sync")
 
 WAZUH_BASE_URL = os.getenv(
-    "WAZUH_BASE_URL", "https://wazuh.intranet.paynet.md:55000").rstrip("/")
+    "WAZUH_BASE_URL", "https://wazuh.example.local:55000").rstrip("/")
 WAZUH_USERNAME = os.getenv("WAZUH_USERNAME", "")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD", "")
 WAZUH_VERIFY_TLS = os.getenv("WAZUH_VERIFY_TLS", "false").lower() == "true"
@@ -63,9 +63,9 @@ def wazuh_headers(token):
 def wazuh_authenticate():
     if not WAZUH_USERNAME or not WAZUH_PASSWORD:
         raise WazuhError("WAZUH_USERNAME sau WAZUH_PASSWORD lipsa in .env")
-    if ":55000" not in WAZUH_BASE_URL and "wazuh.intranet.paynet.md" in WAZUH_BASE_URL:
+    if ":55000" not in WAZUH_BASE_URL:
         log.warning("WAZUH_BASE_URL pare URL de dashboard fara :55000. "
-                    "API-ul e pe https://wazuh.intranet.paynet.md:55000")
+                    "API-ul Wazuh e de obicei pe https://<host>:55000")
     url = f"{WAZUH_BASE_URL}/security/user/authenticate?raw=true"
     try:
         r = requests.get(url, auth=HTTPBasicAuth(WAZUH_USERNAME, WAZUH_PASSWORD),
@@ -76,7 +76,7 @@ def wazuh_authenticate():
         raise WazuhError(f"Wazuh auth 401 Unauthorized — user/parola gresite ({url})")
     if r.status_code == 404:
         raise WazuhError(f"Wazuh auth 404 — BASE_URL gresit. Foloseste "
-                         f"https://wazuh.intranet.paynet.md:55000 (ai: {WAZUH_BASE_URL})")
+                         f"URL-ul API cu portul :55000 (ai: {WAZUH_BASE_URL})")
     if r.status_code >= 400:
         raise WazuhError(f"Wazuh auth failed HTTP {r.status_code}: {r.text[:500]}")
     token = r.text.strip()
