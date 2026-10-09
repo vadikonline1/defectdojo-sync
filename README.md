@@ -138,10 +138,14 @@ La fiecare tag `v*` workflow-ul `.github/workflows/build-release.yml`:
    (`report/report/results`) si se foloseste parserul v1 `OpenVAS Parser`.
 3. DefectDojo refuza fisiere > 100 MB — exportul Wazuh (~100k findings) e
    impartit in chunkuri de ~30–40 MB.
-4. Pe Wazuh ≥ 4.8 endpoint-ul `/vulnerability/{agent}` nu mai exista (404);
+4. Parserul DefectDojo `OpenVAS Parser` (v1) crapa cu `not enough values to
+   unpack` pe rezultate cu `<port>` fara `/` (ex. `package`, intalnite la
+   scanari cPanel). `sanitize_ports()` normalizeaza valorile inainte de
+   import (`995:...` -> `995/tcp`, `package` -> `package/tcp`).
+5. Pe Wazuh ≥ 4.8 endpoint-ul `/vulnerability/{agent}` nu mai exista (404);
    vulnerabilitatile se citesc din OpenSearch (`wazuh-states-vulnerabilities-*`),
    deci trebuie creds de indexer, nu doar de API.
-5. `Closed` umflat in DefectDojo: importurile chunked folosesc mereu
+6. `Closed` umflat in DefectDojo: importurile chunked folosesc mereu
    `close_old_findings=false` (altfel fiecare chunk inchide findings-urile
    celorlalte). Dupa fiecare import complet, `close_missing_findings()`
    inchide doar findings ACTIVE a caror cheie stabila (`CVE + agent_id`)

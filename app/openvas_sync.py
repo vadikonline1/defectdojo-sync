@@ -84,6 +84,28 @@ def get_tasks(gmp):
     return tasks
 
 
+def sanitize_ports(wrapper_report):
+    """Adu <port> la forma 'port/protocol' ceruta de parserul DefectDojo v1.
+
+    v1 face `port_str, protocol = field.text.split("/")` si crapa cu
+    'not enough values to unpack' pe valori fara '/' (ex. 'package' sau
+    '995:hostname', intalnite la scanari cPanel). Regula:
+    - '995:...' -> '995/tcp' (portul numeric detectat la inceput)
+    - 'package'  -> 'package/tcp' (conversia la int esueaza silentios in parser)
+    """
+    import re
+    fixed = 0
+    for port in wrapper_report.findall(".//result/port"):
+        text = (port.text or "").strip()
+        if text and "/" not in text:
+            m = re.match(r"(\d+)", text)
+            port.text = f"{m.group(1)}/tcp" if m else f"{text}/tcp"
+            fixed += 1
+    if fixed:
+        log.info("Sanitize <port>: %d valori fara '/' normalizate", fixed)
+    return fixed
+
+
 def get_report_xml(gmp, report_id, report_format_id):
     response = gmp.get_report(
         report_id=report_id,
@@ -104,6 +126,7 @@ def get_report_xml(gmp, report_id, report_format_id):
     if report_payload.find("results") is None:
         raise RuntimeError(
             f"Nested report payload for {report_id} has no <results>")
+    sanitize_ports(wrapper_report)
     xml_bytes = ET.tostring(wrapper_report, encoding="utf-8", xml_declaration=True)
     try:
         root = ET.fromstring(xml_bytes)
